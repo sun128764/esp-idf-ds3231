@@ -250,7 +250,7 @@ DS3231_API int ds3231_getTime(ds3231_t driver, struct tm *time)
     time->tm_wday = rtime[3];
     time->tm_mday = BCD_TO_DEC(rtime[4]);
     time->tm_mon = BCD_TO_DEC((rtime[5] & 0x1F)) - 1;
-    time->tm_year = 2000 + BCD_TO_DEC(rtime[6]) + ((rtime[5] & (1 << 7)) ? 100 : 0);
+    time->tm_year = 100 + BCD_TO_DEC(rtime[6]) + ((rtime[5] & (1 << 7)) ? 100 : 0);
     ds3231_fill_yday(time);
 
     return 0;
@@ -272,7 +272,7 @@ DS3231_API int ds3231_setTime(ds3231_t driver, const struct tm *time)
     rtime[2] = DEC_TO_BCD(time->tm_hour);
     rtime[3] = time->tm_wday;
     rtime[4] = DEC_TO_BCD(time->tm_mday);
-    rtime[5] = DEC_TO_BCD(time->tm_mon + 1) + ((time->tm_year >= 2100) ? (1 << 7) : 0);
+    rtime[5] = DEC_TO_BCD(time->tm_mon + 1) + ((time->tm_year >= 200) ? (1 << 7) : 0);
     rtime[6] = DEC_TO_BCD(time->tm_year % 100);
     if (ds3231_io_write(driver->port, DS3231_REGISTER_SECONDS, rtime, sizeof rtime))
     {

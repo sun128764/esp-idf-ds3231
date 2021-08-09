@@ -84,6 +84,7 @@ inline static int ds3231_endTemperatureF(ds3231_t driver, float *out_temperature
     }
 
     *out_temperature = (float)iTemp / 4.0f;
+    return 0;
 }
 
 #endif

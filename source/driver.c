@@ -113,8 +113,8 @@ DS3231_API int ds3231_setInterrupt(ds3231_t driver, int alarm1, int alarm2)
 
     uint8_t control = 
         DS3231_CONTROL_INTCN |
-        alarm1 ? DS3231_CONTROL_A1IE : 0 |
-        alarm2 ? DS3231_CONTROL_A2IE : 0;
+        (alarm1 ? DS3231_CONTROL_A1IE : 0) |
+        (alarm2 ? DS3231_CONTROL_A2IE : 0);
 
     if (ds3231_io_write(driver->port, DS3231_REGISTER_CONTROL, &control, sizeof control))
     {

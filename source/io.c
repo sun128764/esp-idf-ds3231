@@ -34,11 +34,11 @@ esp_err_t ds3231_io_write(i2c_port_t port, uint8_t addr, const void *data, size_
 
     if ((cmd = i2c_cmd_link_create()))
     {
-        for (int i = 0; i < sz; ++ i)
+        for (int i = 0; i < sz; ++i)
         {
             i2c_master_start(cmd);
             i2c_master_write_byte(cmd, DS3231_ADDR | I2C_MASTER_WRITE, true);
-            i2c_master_write_byte(cmd, addr, true);
+            i2c_master_write_byte(cmd, addr + i, true);
             i2c_master_write_byte(cmd, ((uint8_t*)data)[i], true);
         }
         i2c_master_stop(cmd);

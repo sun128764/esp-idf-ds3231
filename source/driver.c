@@ -135,7 +135,7 @@ DS3231_API int ds3231_getStatus(ds3231_t driver, ds3231_status_t *out_status)
         return -1;
     }
 
-    ds3231_status_t rstatus;
+    uint8_t rstatus;
     if (ds3231_io_read(driver->port, DS3231_REGISTER_STATUS, &rstatus, sizeof rstatus))
     {
         errno = EIO;
@@ -421,6 +421,20 @@ DS3231_API int ds3231_endTemperature(ds3231_t driver, int16_t *out_temperature)
 
     *out_temperature = (int16_t)((tempr[0] << 8) | (tempr[1]));
     *out_temperature >>= 6;
+
+    return 0;
+}
+
+int ds3231_clearInt(ds3231_t driver)
+{
+    ASSERT_DRV();
+
+    uint8_t status = (1 << 3);
+    if (ds3231_io_write(driver->port, DS3231_REGISTER_STATUS, &status, sizeof status))
+    {
+        errno = EIO;
+        return -1;
+    }
 
     return 0;
 }

@@ -53,6 +53,8 @@ DS3231_API int ds3231_setInterrupt(ds3231_t driver, int alarm1, int alarm2);
 
 DS3231_API int ds3231_getStatus(ds3231_t driver, ds3231_status_t *out_status);
 
+DS3231_API int ds3231_clearInt(ds3231_t driver);
+
 DS3231_API int ds3231_getAgingOffset(ds3231_t driver, int8_t *out_offset);
 
 DS3231_API int ds3231_setAgingOffset(ds3231_t driver, int8_t offset);

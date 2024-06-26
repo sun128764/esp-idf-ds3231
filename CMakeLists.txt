@@ -3,4 +3,5 @@ idf_component_register(
     SRCS
         "source/io.c"
         "source/driver.c"
+    REQUIRES esp_event driver
 )

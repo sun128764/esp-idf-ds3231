@@ -1,22 +1,31 @@
 #include "private.h"
 #include <errno.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #define F_INIT (1 << 0)
 
 struct ds3231_t
 {
     int flags;
-    i2c_port_t port;
+    i2c_port_num_t port;
+    int sda_gpio;
+    int scl_gpio;
+    int rw_timeout_ms;
+    uint32_t clock_speed_hz;
 };
 
-#define ASSERT_DRV() do { \
-    if (driver == NULL || !(driver->flags & F_INIT)) { \
-        errno = EINVAL; \
-        return -1; \
-    } \
-} while(0)
+#define ASSERT_DRV()                                     \
+    do                                                   \
+    {                                                    \
+        if (driver == NULL || !(driver->flags & F_INIT)) \
+        {                                                \
+            errno = EINVAL;                              \
+            return -1;                                   \
+        }                                                \
+    } while (0)
 
-DS3231_API ds3231_t ds3231_create(i2c_port_t port)
+DS3231_API ds3231_t ds3231_create(i2c_port_num_t port, int sda_gpio, int scl_gpio, int rw_timeout_ms, uint32_t clock_speed_hz)
 {
     if (port > I2C_NUM_MAX)
     {
@@ -29,6 +38,10 @@ DS3231_API ds3231_t ds3231_create(i2c_port_t port)
     {
         driver->flags = 0;
         driver->port = port;
+        driver->sda_gpio = sda_gpio;
+        driver->scl_gpio = scl_gpio;
+        driver->rw_timeout_ms = rw_timeout_ms;
+        driver->clock_speed_hz = clock_speed_hz;
     }
     return driver;
 }
@@ -48,7 +61,7 @@ DS3231_API int ds3231_initialize(ds3231_t driver, int *opt_out_osf)
 
     // Read status regıister
     uint8_t status;
-    if (ds3231_io_read(driver->port, DS3231_REGISTER_STATUS, &status, sizeof status))
+    if (ds3231_io_read(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_STATUS, &status, sizeof status))
     {
         errno = EIO;
         return -1;
@@ -65,9 +78,9 @@ DS3231_API int ds3231_initialize(ds3231_t driver, int *opt_out_osf)
     {
         // Wait until busy flag clears.
         ds3231_status_t status;
-        while(!(err = ds3231_getStatus(driver, &status)) && (status & DS3231_STATUS_BSY))
+        while (!(err = ds3231_getStatus(driver, &status)) && (status & DS3231_STATUS_BSY))
         {
-            vTaskDelay(pdMS_TO_TICKS(10));
+            vTaskDelay(10 / portTICK_PERIOD_MS);
         }
     }
 
@@ -98,7 +111,7 @@ DS3231_API int ds3231_setSquareWaveOutput(ds3231_t driver, ds3231_rate_t rate, i
         break;
     }
 
-    if (ds3231_io_write(driver->port, DS3231_REGISTER_CONTROL, &control, sizeof control))
+    if (ds3231_io_write(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_CONTROL, &control, sizeof control))
     {
         errno = EIO;
         return -1;
@@ -111,12 +124,12 @@ DS3231_API int ds3231_setInterrupt(ds3231_t driver, int alarm1, int alarm2)
 {
     ASSERT_DRV();
 
-    uint8_t control = 
+    uint8_t control =
         DS3231_CONTROL_INTCN |
         (alarm1 ? DS3231_CONTROL_A1IE : 0) |
         (alarm2 ? DS3231_CONTROL_A2IE : 0);
 
-    if (ds3231_io_write(driver->port, DS3231_REGISTER_CONTROL, &control, sizeof control))
+    if (ds3231_io_write(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_CONTROL, &control, sizeof control))
     {
         errno = EIO;
         return -1;
@@ -136,7 +149,7 @@ DS3231_API int ds3231_getStatus(ds3231_t driver, ds3231_status_t *out_status)
     }
 
     uint8_t rstatus;
-    if (ds3231_io_read(driver->port, DS3231_REGISTER_STATUS, &rstatus, sizeof rstatus))
+    if (ds3231_io_read(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_STATUS, &rstatus, sizeof rstatus))
     {
         errno = EIO;
         return -1;
@@ -147,7 +160,7 @@ DS3231_API int ds3231_getStatus(ds3231_t driver, ds3231_status_t *out_status)
     return 0;
 }
 
-DS3231_API int ds3231_getAgingOffset(ds3231_t driver, int8_t *out_offset)
+DS3231_API int ds3231_getAgingOffset(ds3231_t driver, u_int8_t *out_offset)
 {
     ASSERT_DRV();
 
@@ -157,7 +170,7 @@ DS3231_API int ds3231_getAgingOffset(ds3231_t driver, int8_t *out_offset)
         return -1;
     }
 
-    if (ds3231_io_read(driver->port, DS3231_REGISTER_OFFSET, out_offset, sizeof *out_offset))
+    if (ds3231_io_read(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_OFFSET, out_offset, sizeof *out_offset))
     {
         errno = EIO;
         return -1;
@@ -166,11 +179,11 @@ DS3231_API int ds3231_getAgingOffset(ds3231_t driver, int8_t *out_offset)
     return 0;
 }
 
-DS3231_API int ds3231_setAgingOffset(ds3231_t driver, int8_t offset)
+DS3231_API int ds3231_setAgingOffset(ds3231_t driver, u_int8_t offset)
 {
     ASSERT_DRV();
 
-    if (ds3231_io_write(driver->port, DS3231_REGISTER_OFFSET, &offset, sizeof offset))
+    if (ds3231_io_write(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_OFFSET, &offset, sizeof offset))
     {
         errno = EIO;
         return -1;
@@ -182,32 +195,43 @@ DS3231_API int ds3231_setAgingOffset(ds3231_t driver, int8_t offset)
 inline static void ds3231_fill_yday(struct tm *time)
 {
     time->tm_yday = time->tm_mday;
-    switch(time->tm_mon)
+    switch (time->tm_mon)
     {
-    case 0:  // Jan
+    case 0: // Jan
         break;
-    case 1:  // Feb
-        time->tm_yday += 31; break;
-    case 2:  // Mar
-        time->tm_yday += 59; break;
-    case 3:  // Apr
-        time->tm_yday += 90; break;
-    case 4:  // May
-        time->tm_yday += 120; break;
-    case 5:  // Jun
-        time->tm_yday += 151; break;
-    case 6:  // Jul
-        time->tm_yday += 181; break;
-    case 7:  // Aug
-        time->tm_yday += 212; break;
-    case 8:  // Sep
-        time->tm_yday += 243; break;
-    case 9:  // Oct
-        time->tm_yday += 273; break;
+    case 1: // Feb
+        time->tm_yday += 31;
+        break;
+    case 2: // Mar
+        time->tm_yday += 59;
+        break;
+    case 3: // Apr
+        time->tm_yday += 90;
+        break;
+    case 4: // May
+        time->tm_yday += 120;
+        break;
+    case 5: // Jun
+        time->tm_yday += 151;
+        break;
+    case 6: // Jul
+        time->tm_yday += 181;
+        break;
+    case 7: // Aug
+        time->tm_yday += 212;
+        break;
+    case 8: // Sep
+        time->tm_yday += 243;
+        break;
+    case 9: // Oct
+        time->tm_yday += 273;
+        break;
     case 10: // Nov
-        time->tm_yday += 304; break;
+        time->tm_yday += 304;
+        break;
     case 11: // Dec
-        time->tm_yday += 334; break;
+        time->tm_yday += 334;
+        break;
     default:
         break;
     }
@@ -230,7 +254,7 @@ DS3231_API int ds3231_getTime(ds3231_t driver, struct tm *time)
         return -1;
     }
 
-    if (ds3231_io_read(driver->port, DS3231_REGISTER_SECONDS, rtime, sizeof rtime))
+    if (ds3231_io_read(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_SECONDS, rtime, sizeof rtime))
     {
         errno = EIO;
         return -1;
@@ -274,7 +298,7 @@ DS3231_API int ds3231_setTime(ds3231_t driver, const struct tm *time)
     rtime[4] = DEC_TO_BCD(time->tm_mday);
     rtime[5] = DEC_TO_BCD(time->tm_mon + 1) + ((time->tm_year >= 200) ? (1 << 7) : 0);
     rtime[6] = DEC_TO_BCD(time->tm_year % 100);
-    if (ds3231_io_write(driver->port, DS3231_REGISTER_SECONDS, rtime, sizeof rtime))
+    if (ds3231_io_write(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_SECONDS, rtime, sizeof rtime))
     {
         errno = EIO;
         return -1;
@@ -297,7 +321,7 @@ DS3231_API int ds3231_setAlarm1(ds3231_t driver, ds3231_alarmType_t type, const 
     rtime[0] = DEC_TO_BCD(time->tm_sec);
     rtime[1] = DEC_TO_BCD(time->tm_min);
     rtime[2] = DEC_TO_BCD(time->tm_hour);
-    switch(type)
+    switch (type)
     {
     case DS3231_ALARM1_PERSEC:
         rtime[0] |= (1 << 7);
@@ -316,7 +340,7 @@ DS3231_API int ds3231_setAlarm1(ds3231_t driver, ds3231_alarmType_t type, const 
         break;
     }
 
-    if (ds3231_io_write(driver->port, DS3231_REGISTER_ALARM1_SECONDS, rtime, sizeof rtime))
+    if (ds3231_io_write(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_ALARM1_SECONDS, rtime, sizeof rtime))
     {
         errno = EIO;
         return -1;
@@ -338,7 +362,7 @@ DS3231_API int ds3231_setAlarm2(ds3231_t driver, ds3231_alarmType_t type, const 
     uint8_t rtime[3];
     rtime[0] = DEC_TO_BCD(time->tm_min);
     rtime[1] = DEC_TO_BCD(time->tm_hour);
-    switch(type)
+    switch (type)
     {
     case DS3231_ALARM2_PREMIN:
         rtime[0] |= (1 << 7);
@@ -358,7 +382,7 @@ DS3231_API int ds3231_setAlarm2(ds3231_t driver, ds3231_alarmType_t type, const 
         return -1;
     }
 
-    if (ds3231_io_write(driver->port, DS3231_REGISTER_ALARM2_MINUTES, rtime, sizeof rtime))
+    if (ds3231_io_write(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_ALARM2_MINUTES, rtime, sizeof rtime))
     {
         errno = EIO;
         return -1;
@@ -372,14 +396,14 @@ DS3231_API int ds3231_beginTemperature(ds3231_t driver)
     ASSERT_DRV();
 
     uint8_t control;
-    if (ds3231_io_read(driver->port, DS3231_REGISTER_CONTROL, &control, sizeof control))
+    if (ds3231_io_read(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_CONTROL, &control, sizeof control))
     {
         errno = EIO;
         return -1;
     }
 
     control |= DS3231_CONTROL_CONV;
-    if (ds3231_io_write(driver->port, DS3231_REGISTER_CONTROL, &control, sizeof control))
+    if (ds3231_io_write(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_CONTROL, &control, sizeof control))
     {
         errno = EIO;
         return -1;
@@ -402,18 +426,16 @@ DS3231_API int ds3231_endTemperature(ds3231_t driver, int16_t *out_temperature)
     uint8_t tempr[2];
 
     while (
-        !ds3231_io_read(driver->port, DS3231_REGISTER_CONTROL, &status, sizeof status) &&
-        (status & DS3231_RSTATUS_BSY)
-    )
+        !ds3231_io_read(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_CONTROL, &status, sizeof status) &&
+        (status & DS3231_RSTATUS_BSY))
     {
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(10 / portTICK_PERIOD_MS);
         status = 0xFF;
     }
 
     if (
         (status & DS3231_RSTATUS_BSY) ||
-        ds3231_io_read(driver->port, DS3231_REGISTER_TEMP_H, tempr, sizeof tempr)
-    )
+        ds3231_io_read(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_TEMP_H, tempr, sizeof tempr))
     {
         errno = EIO;
         return -1;
@@ -430,7 +452,7 @@ int ds3231_clearInt(ds3231_t driver)
     ASSERT_DRV();
 
     uint8_t status = (1 << 3);
-    if (ds3231_io_write(driver->port, DS3231_REGISTER_STATUS, &status, sizeof status))
+    if (ds3231_io_write(driver->port, driver->scl_gpio, driver->sda_gpio, DS3231_REGISTER_STATUS, &status, sizeof status))
     {
         errno = EIO;
         return -1;

@@ -73,7 +73,7 @@ inline static uint8_t DS3231_24_TO_12(uint8_t _24)
     }
 }
 
-esp_err_t ds3231_io_read(i2c_port_t port, uint8_t addr, void *data, size_t sz);
-esp_err_t ds3231_io_write(i2c_port_t port, uint8_t addr, const void *data, size_t sz);
+esp_err_t ds3231_io_read(i2c_port_num_t port, gpio_num_t scl, gpio_num_t sda, uint8_t addr, uint8_t *data, size_t sz);
+esp_err_t ds3231_io_write(i2c_port_num_t port, gpio_num_t scl, gpio_num_t sda, uint8_t addr, const uint8_t *data, size_t sz);
 
 #endif

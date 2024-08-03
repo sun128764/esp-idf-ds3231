@@ -3,7 +3,7 @@
 
 #define DS3231_API
 
-#include <driver/i2c.h>
+#include <driver/i2c_master.h>
 #include <time.h>
 #include <errno.h>
 
@@ -41,7 +41,7 @@ typedef enum ds3231_status_t
     DS3231_STATUS_AL1 = 1 << 0,
 } ds3231_status_t;
 
-DS3231_API ds3231_t ds3231_create(i2c_port_t port);
+DS3231_API ds3231_t ds3231_create(i2c_port_num_t port, int sda_gpio, int scl_gpio, int rw_timeout_ms, uint32_t clock_speed_hz);
 
 DS3231_API void ds3231_destroy(ds3231_t driver);
 
@@ -55,9 +55,9 @@ DS3231_API int ds3231_getStatus(ds3231_t driver, ds3231_status_t *out_status);
 
 DS3231_API int ds3231_clearInt(ds3231_t driver);
 
-DS3231_API int ds3231_getAgingOffset(ds3231_t driver, int8_t *out_offset);
+DS3231_API int ds3231_getAgingOffset(ds3231_t driver, u_int8_t *out_offset);
 
-DS3231_API int ds3231_setAgingOffset(ds3231_t driver, int8_t offset);
+DS3231_API int ds3231_setAgingOffset(ds3231_t driver, u_int8_t offset);
 
 DS3231_API int ds3231_getTime(ds3231_t driver, struct tm *time);
 

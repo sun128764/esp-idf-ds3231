@@ -1,11 +1,11 @@
 #include "private.h"
-#include <errno.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include "ds3231.h"
 
 #define F_INIT (1 << 0)
 
-struct ds3231_t
+struct ds3231
 {
     int flags;
     i2c_port_num_t port;
@@ -25,33 +25,45 @@ struct ds3231_t
         }                                                \
     } while (0)
 
-DS3231_API ds3231_t ds3231_create(i2c_port_num_t port, int sda_gpio, int scl_gpio, int rw_timeout_ms, uint32_t clock_speed_hz)
+DS3231_API esp_err_t ds3231_create(ds3231_config_t *ds3231_config, ds3231_handle_t *out_ds3231)
 {
-    if (port > I2C_NUM_MAX)
+    if (!out_ds3231)
+    {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ds3231_handle_t ds3231 = NULL;
+
+    ds3231 = calloc(1, sizeof(struct ds3231));
+    if (!ds3231)
+    {
+        return ESP_ERR_NO_MEM;
+    }
+
+    if (ds3231_config->i2c.port > I2C_NUM_MAX)
     {
         errno = EINVAL;
-        return NULL;
+        return ESP_ERR_INVALID_ARG;
     }
 
-    ds3231_t driver = malloc(sizeof(struct ds3231_t));
-    if (driver)
-    {
-        driver->flags = 0;
-        driver->port = port;
-        driver->sda_gpio = sda_gpio;
-        driver->scl_gpio = scl_gpio;
-        driver->rw_timeout_ms = rw_timeout_ms;
-        driver->clock_speed_hz = clock_speed_hz;
-    }
-    return driver;
+    ds3231->flags = 0;
+    ds3231->port = ds3231_config->i2c.port;
+    ds3231->sda_gpio = ds3231_config->i2c.sda_gpio;
+    ds3231->scl_gpio = ds3231_config->i2c.scl_gpio;
+    ds3231->rw_timeout_ms = -1;
+    ds3231->clock_speed_hz = 100000;
+
+    *out_ds3231 = ds3231;
+
+    return ESP_OK;
 }
 
-DS3231_API void ds3231_destroy(ds3231_t driver)
+DS3231_API void ds3231_destroy(ds3231_handle_t driver)
 {
     free(driver);
 }
 
-DS3231_API int ds3231_initialize(ds3231_t driver, int *opt_out_osf)
+DS3231_API int ds3231_initialize(ds3231_handle_t driver, int *opt_out_osf)
 {
     if (driver == NULL)
     {
@@ -87,7 +99,7 @@ DS3231_API int ds3231_initialize(ds3231_t driver, int *opt_out_osf)
     return err;
 }
 
-DS3231_API int ds3231_setSquareWaveOutput(ds3231_t driver, ds3231_rate_t rate, int battery_backed)
+DS3231_API int ds3231_setSquareWaveOutput(ds3231_handle_t driver, ds3231_rate_t rate, int battery_backed)
 {
     ASSERT_DRV();
 
@@ -120,7 +132,7 @@ DS3231_API int ds3231_setSquareWaveOutput(ds3231_t driver, ds3231_rate_t rate, i
     return 0;
 }
 
-DS3231_API int ds3231_setInterrupt(ds3231_t driver, int alarm1, int alarm2)
+DS3231_API int ds3231_setInterrupt(ds3231_handle_t driver, int alarm1, int alarm2)
 {
     ASSERT_DRV();
 
@@ -138,7 +150,7 @@ DS3231_API int ds3231_setInterrupt(ds3231_t driver, int alarm1, int alarm2)
     return 0;
 }
 
-DS3231_API int ds3231_getStatus(ds3231_t driver, ds3231_status_t *out_status)
+DS3231_API int ds3231_getStatus(ds3231_handle_t driver, ds3231_status_t *out_status)
 {
     ASSERT_DRV();
 
@@ -160,7 +172,7 @@ DS3231_API int ds3231_getStatus(ds3231_t driver, ds3231_status_t *out_status)
     return 0;
 }
 
-DS3231_API int ds3231_getAgingOffset(ds3231_t driver, u_int8_t *out_offset)
+DS3231_API int ds3231_getAgingOffset(ds3231_handle_t driver, u_int8_t *out_offset)
 {
     ASSERT_DRV();
 
@@ -179,7 +191,7 @@ DS3231_API int ds3231_getAgingOffset(ds3231_t driver, u_int8_t *out_offset)
     return 0;
 }
 
-DS3231_API int ds3231_setAgingOffset(ds3231_t driver, u_int8_t offset)
+DS3231_API int ds3231_setAgingOffset(ds3231_handle_t driver, u_int8_t offset)
 {
     ASSERT_DRV();
 
@@ -242,7 +254,7 @@ inline static void ds3231_fill_yday(struct tm *time)
     }
 }
 
-DS3231_API int ds3231_getTime(ds3231_t driver, struct tm *time)
+DS3231_API int ds3231_getTime(ds3231_handle_t driver, struct tm *time)
 {
     uint8_t rtime[7];
 
@@ -280,7 +292,7 @@ DS3231_API int ds3231_getTime(ds3231_t driver, struct tm *time)
     return 0;
 }
 
-DS3231_API int ds3231_setTime(ds3231_t driver, const struct tm *time)
+DS3231_API int ds3231_setTime(ds3231_handle_t driver, const struct tm *time)
 {
     ASSERT_DRV();
 
@@ -307,7 +319,7 @@ DS3231_API int ds3231_setTime(ds3231_t driver, const struct tm *time)
     return 0;
 }
 
-DS3231_API int ds3231_setAlarm1(ds3231_t driver, ds3231_alarmType_t type, const struct tm *time)
+DS3231_API int ds3231_setAlarm1(ds3231_handle_t driver, ds3231_alarmType_t type, const struct tm *time)
 {
     ASSERT_DRV();
 
@@ -349,7 +361,7 @@ DS3231_API int ds3231_setAlarm1(ds3231_t driver, ds3231_alarmType_t type, const 
     return 0;
 }
 
-DS3231_API int ds3231_setAlarm2(ds3231_t driver, ds3231_alarmType_t type, const struct tm *time)
+DS3231_API int ds3231_setAlarm2(ds3231_handle_t driver, ds3231_alarmType_t type, const struct tm *time)
 {
     ASSERT_DRV();
 
@@ -391,7 +403,7 @@ DS3231_API int ds3231_setAlarm2(ds3231_t driver, ds3231_alarmType_t type, const 
     return 0;
 }
 
-DS3231_API int ds3231_beginTemperature(ds3231_t driver)
+DS3231_API int ds3231_beginTemperature(ds3231_handle_t driver)
 {
     ASSERT_DRV();
 
@@ -412,7 +424,7 @@ DS3231_API int ds3231_beginTemperature(ds3231_t driver)
     return 0;
 }
 
-DS3231_API int ds3231_endTemperature(ds3231_t driver, int16_t *out_temperature)
+DS3231_API int ds3231_endTemperature(ds3231_handle_t driver, int16_t *out_temperature)
 {
     ASSERT_DRV();
 
@@ -447,7 +459,7 @@ DS3231_API int ds3231_endTemperature(ds3231_t driver, int16_t *out_temperature)
     return 0;
 }
 
-int ds3231_clearInt(ds3231_t driver)
+int ds3231_clearInt(ds3231_handle_t driver)
 {
     ASSERT_DRV();
 
